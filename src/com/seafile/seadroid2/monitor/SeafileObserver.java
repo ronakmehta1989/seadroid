@@ -17,6 +17,7 @@ import com.seafile.seadroid2.data.SeafCachedFile;
 public class SeafileObserver implements FileAlterationListener {
     private final String DEBUG_TAG = "SeafileObserver";
     private Account account;
+    private DataManager dataManager;
     private Map<File, SeafCachedFile> fileMap = new HashMap<File, SeafCachedFile>();
     private FileAlterationObserver alterationObserver;
 
@@ -28,6 +29,7 @@ public class SeafileObserver implements FileAlterationListener {
 
     public SeafileObserver(Account account, CachedFileChangedListener listener) {
         this.account = account;
+        this.dataManager = new DataManager(account);
         this.listener = listener;
         alterationObserver = new FileAlterationObserver(getAccountDir());
         alterationObserver.addListener(this);
@@ -35,7 +37,6 @@ public class SeafileObserver implements FileAlterationListener {
     }
 
     private String getAccountDir() {
-        DataManager dataManager = new DataManager(account);
         return dataManager.getAccountDir();
     }
 
@@ -44,7 +45,6 @@ public class SeafileObserver implements FileAlterationListener {
     }
 
     private void addCachedFiles() {
-        DataManager dataManager = new DataManager(account);
         List<SeafCachedFile> cachedfiles = dataManager.getCachedFiles();
         for (SeafCachedFile cached : cachedfiles) {
             File file = dataManager.getLocalRepoFile(cached.repoName, cached.repoID, cached.path);
@@ -55,7 +55,6 @@ public class SeafileObserver implements FileAlterationListener {
     }
 
     public void addToMap(SeafCachedFile cachedFile) {
-        DataManager dataManager = new DataManager(account);
         File file = dataManager.getLocalRepoFile(cachedFile.repoName, cachedFile.repoID, cachedFile.path);
         fileMap.put(file, cachedFile);
     }

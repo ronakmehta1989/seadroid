@@ -17,12 +17,12 @@ import android.support.v4.content.LocalBroadcastManager;
 import android.util.Log;
 
 import com.seafile.seadroid2.ConcurrentAsyncTask;
-import com.seafile.seadroid2.TransferManager.DownloadTaskInfo;
-import com.seafile.seadroid2.TransferService;
-import com.seafile.seadroid2.Utils;
 import com.seafile.seadroid2.account.Account;
 import com.seafile.seadroid2.account.AccountManager;
 import com.seafile.seadroid2.data.SeafCachedFile;
+import com.seafile.seadroid2.transfer.TransferManager.DownloadTaskInfo;
+import com.seafile.seadroid2.transfer.TransferManager.UploadTaskInfo;
+import com.seafile.seadroid2.transfer.TransferService;
 
 /**
  * Monitor changes of local cached files, and upload them through
@@ -35,12 +35,16 @@ public class FileMonitorService extends Service implements
 
 	private SeafileMonitor fileMonitor;
 	private TransferService mTransferService;
+	private AutoUpdateManager updateMgr = new AutoUpdateManager();
 	private final IBinder mBinder = new MonitorBinder();
 
 	private BroadcastReceiver downloadReceiver = new BroadcastReceiver() {
 
 		@Override
 		public void onReceive(Context context, Intent intent) {
+			if (mTransferService == null) {
+				return;
+			}
 
 			String type = intent.getStringExtra("type");
 			if (type == null) {
@@ -59,8 +63,18 @@ public class FileMonitorService extends Service implements
 					tmpCachedFile.path = info.path;
 					Account account = info.account;
 					Log.d(DEBUG_TAG, account.email);
-					fileMonitor.getObserverForAccount(account).addToMap(tmpCachedFile);
+					fileMonitor.getObserverForAccount(account).addToMap(
+							tmpCachedFile);
 				}
+			} else if (type
+					.equals(TransferService.BROADCAST_FILE_UPLOAD_SUCCESS)) {
+                // TODO: also handle upload failure, such as 404
+				int taskID = intent.getIntExtra("taskID", 0);
+				UploadTaskInfo info = mTransferService
+						.getUploadTaskInfo(taskID);
+
+				updateMgr.onFileUpdateSuccess(info.account, info.repoID,
+						info.parentDir, info.localFilePath);
 			}
 
 		}
@@ -73,7 +87,7 @@ public class FileMonitorService extends Service implements
 
 		if (fileMonitor == null) {
 			fileMonitor = new SeafileMonitor(this);
-            ConcurrentAsyncTask.execute(new InitMonitorTask());
+			ConcurrentAsyncTask.execute(new InitMonitorTask());
 		}
 
 		return START_STICKY;
@@ -99,27 +113,32 @@ public class FileMonitorService extends Service implements
 		Intent bindIntent = new Intent(this, TransferService.class);
 		bindService(bindIntent, mTransferConnection, Context.BIND_AUTO_CREATE);
 
-		registerReceiver(downloadReceiver, new IntentFilter(
-				TransferService.BROADCAST_ACTION));
+		LocalBroadcastManager.getInstance(this).registerReceiver(
+				downloadReceiver,
+				new IntentFilter(TransferService.BROADCAST_ACTION));
 	}
 
 	@Override
 	public void onDestroy() {
 		Log.d(DEBUG_TAG, "onDestroy");
-		unbindService(mTransferConnection);
+
+		updateMgr.stop();
+
+		if (fileMonitor != null) {
+			try {
+				fileMonitor.stop();
+			} catch (Exception e) {
+				Log.d(DEBUG_TAG, "failed to stop file monitor");
+			}
+		}
+
+		if (mTransferService != null) {
+			unbindService(mTransferConnection);
+			mTransferService = null;
+		}
+
 		LocalBroadcastManager.getInstance(this).unregisterReceiver(
 				downloadReceiver);
-
-        if (fileMonitor != null) {
-            try {
-                fileMonitor.stop();
-            } catch(Exception e) {
-				Log.d(DEBUG_TAG, "failed to stop  file monitor");
-            }
-        }
-	}
-
-	public void addAccounts(List<Account> accounts) {
 	}
 
 	public void removeAccount(Account account) {
@@ -128,13 +147,11 @@ public class FileMonitorService extends Service implements
 	}
 
 	@Override
-	public void onCachedFiledChanged(Account account,
-			SeafCachedFile cachedFile, File localFile) {
-		if (mTransferService != null) {
-			mTransferService.addUploadTask(account, cachedFile.repoID,
-					cachedFile.repoName, Utils.getParentPath(cachedFile.path),
-					localFile.getPath(), true);
-		}
+	public void onCachedFiledChanged(final Account account,
+			final SeafCachedFile cachedFile, final File localFile) {
+
+		updateMgr.addTask(account, cachedFile, localFile);
+
 	}
 
 	private ServiceConnection mTransferConnection = new ServiceConnection() {
@@ -143,9 +160,7 @@ public class FileMonitorService extends Service implements
 		public void onServiceConnected(ComponentName className, IBinder binder) {
 			TransferService.TransferBinder transferBinder = (TransferService.TransferBinder) binder;
 			mTransferService = transferBinder.getService();
-			LocalBroadcastManager.getInstance(FileMonitorService.this)
-					.registerReceiver(downloadReceiver,
-							new IntentFilter(TransferService.BROADCAST_ACTION));
+			updateMgr.onTransferServiceConnected(mTransferService);
 		}
 
 		@Override
@@ -155,26 +170,28 @@ public class FileMonitorService extends Service implements
 
 	};
 
-    private class InitMonitorTask extends AsyncTask<Void, Void, Void> {
-        @Override
-        protected Void doInBackground(Void... params) {
-            List<Account> accounts = new AccountManager(FileMonitorService.this).getAccountList();
+	private class InitMonitorTask extends AsyncTask<Void, Void, Void> {
+		@Override
+		protected Void doInBackground(Void... params) {
+			List<Account> accounts = new AccountManager(FileMonitorService.this)
+					.getAccountList();
 
-            for (Account account : accounts) {
-                fileMonitor.monitorFilesForAccount(account);
-            }
+			for (Account account : accounts) {
+				fileMonitor.monitorFilesForAccount(account);
+			}
 
-            try {
+			try {
 				fileMonitor.start();
 			} catch (Exception e) {
 				Log.w(DEBUG_TAG, "failed to start file monitor");
+                throw new RuntimeException("failed to start file monitor");
 			}
 
-            return null;
-        }
+			return null;
+		}
 
-        @Override
-        protected void onPostExecute(Void v) {
-        }
-    }
+		@Override
+		protected void onPostExecute(Void v) {
+		}
+	}
 }

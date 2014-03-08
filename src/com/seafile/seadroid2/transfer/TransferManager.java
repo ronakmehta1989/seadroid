@@ -1,4 +1,4 @@
-package com.seafile.seadroid2;
+package com.seafile.seadroid2.transfer;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -8,6 +8,7 @@ import java.util.List;
 import android.os.AsyncTask;
 import android.util.Log;
 
+import com.seafile.seadroid2.SeafException;
 import com.seafile.seadroid2.account.Account;
 import com.seafile.seadroid2.data.DataManager;
 import com.seafile.seadroid2.data.DataManager.ProgressMonitor;
@@ -245,7 +246,7 @@ public class TransferManager {
         }
 
         public UploadTaskInfo getTaskInfo() {
-            UploadTaskInfo info = new UploadTaskInfo(myID, myState, myRepoID,
+            UploadTaskInfo info = new UploadTaskInfo(myID, account, myState, myRepoID,
                                                      myRepoName, myDir, myPath, isUpdate,
                                                      myUploaded, mySize, err);
             return info;
@@ -444,13 +445,15 @@ public class TransferManager {
         public final boolean isUpdate;
         public final long uploadedSize, totalSize;
         public final SeafException err;
+        public final Account account;
 
-        public UploadTaskInfo(int taskID, TaskState state, String repoID,
+        public UploadTaskInfo(int taskID, Account account, TaskState state, String repoID,
                               String repoName, String parentDir,
                               String localFilePath, boolean isUpdate,
                               long uploadedSize, long totalSize,
                               SeafException err) {
             this.taskID = taskID;
+            this.account = account;
             this.state = state;
             this.repoID = repoID;
             this.repoName = repoName;
